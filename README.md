@@ -1,108 +1,140 @@
-# Clean Next.js + Sanity app
+# Portfolio — Next.js + Sanity
 
-This template includes a [Next.js](https://nextjs.org/) app with a [Sanity Studio](https://www.sanity.io/) – an open-source React application that connects to your Sanity project’s hosted dataset. The Studio is configured locally and can then be deployed for content collaboration.
+A freelance portfolio site with its content in Sanity. Two workspaces:
 
-![Screenshot of Sanity Studio using Presentation Tool to do Visual Editing](/sanity-next-preview.png)
-
-## Features
-
-- **Next.js 16 for Performance:** Leverage the power of Next.js 16 App Router for blazing-fast performance and SEO-friendly static sites.
-- **Real-time Visual Editing:** Edit content live with Sanity's [Presentation Tool](https://www.sanity.io/docs/presentation) and see updates in real time.
-- **Live Content:** The [Live Content API](https://www.sanity.io/live) allows you to deliver live, dynamic experiences to your users without the complexity and scalability challenges that typically come with building real-time functionality.
-- **Customizable Pages with Drag-and-Drop:** Create and manage pages using a page builder with dynamic components and [Drag-and-Drop Visual Editing](https://www.sanity.io/visual-editing-for-structured-content).
-- **Powerful Content Management:** Collaborate with team members in real-time, with fine-grained revision history.
-- **AI-powered Media Support:** Auto-generate alt text with [Sanity AI Assist](https://www.sanity.io/ai-assist).
-- **On-demand Publishing:** No waiting for rebuilds—new content is live instantly with Incremental Static Revalidation.
-- **Easy Media Management:** [Integrated Unsplash support](https://www.sanity.io/plugins/sanity-plugin-asset-source-unsplash) for seamless media handling.
-
-## Demo
-
-https://template-nextjs-clean.sanity.dev
-
-## Getting Started
-
-### Installing the template
-
-> **Already deployed with Vercel?** If you've already deployed using the **Sanity + Vercel Integration** or **one-click Vercel button**, please visit our [Vercel deployment instructions](vercel-installation-instructions.md) to set up your local environment and deploy Sanity Studio.
-
-#### 1. Initialize template with Sanity CLI
-
-Run the command in your Terminal to initialize this template on your local computer.
-
-```shell
-npm create sanity@latest -- --template sanity-io/sanity-template-nextjs-clean
+```
+studio/     Sanity Studio — schemas, structure, Presentation config
+frontend/   The Next.js 16 site
 ```
 
-See the documentation if you are [having issues with the CLI](https://www.sanity.io/help/cli-errors).
+Originally a file-based site (MDX + hardcoded constants), migrated so that every
+page, every case study and all SEO are editable in the Studio.
 
-#### 2. Run Studio and Next.js app locally
+## Running it
 
-Navigate to the template directory using `cd <your app name>`, and start the development servers by running the following command
-
-```shell
-npm run dev
+```bash
+npm install
+npm run dev          # Studio on :3333, site on :3000
 ```
 
-#### 3. Open the app and sign in to the Studio
+Both workspaces need env files — copy the examples and fill them in:
 
-Open the Next.js app running locally in your browser on [http://localhost:3000](http://localhost:3000).
-
-Open the Studio running locally in your browser on [http://localhost:3333](http://localhost:3333). You should now see a screen prompting you to log in to the Studio. Use the same service (Google, GitHub, or email) that you used when you logged in to the CLI.
-
-### Adding content with Sanity
-
-#### 1. Publish your first document
-
-The template comes pre-defined with a schema containing `Page`, `Post`, `Person`, and `Settings` document types.
-
-From the Studio, click "+ Create" and select the `Post` document type. Go ahead and create and publish the document.
-
-Your content should now appear in your Next.js app ([http://localhost:3000](http://localhost:3000)) as well as in the Studio on the "Presentation" Tab
-
-#### 2. Import Sample Data (optional)
-
-You may want to start with some sample content and we've got you covered. Run this command from the root of your project to import the provided dataset (sample-data.tar.gz) into your Sanity project. This step is optional but can be helpful for getting started quickly.
-
-```shell
-npm run import-sample-data
+```bash
+cp studio/.env.example studio/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
-#### 3. Extending the Sanity schema
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | Runs both workspaces via Turborepo |
+| `npm run dev:next` / `npm run dev:studio` | One workspace only |
+| `npm run lint` | ESLint over the frontend |
+| `npm run type-check` | TypeScript across both workspaces |
+| `npm run import-content` | One-off migration from the original file-based project |
 
-The schema for the `Post` document type is defined in the `studio/src/schemaTypes/post.ts` file. You can [add more document types](https://www.sanity.io/docs/studio/schema-types) to the schema to suit your needs.
+## How content flows
 
-### Deploying your application and inviting editors
+```
+Studio schema  →  sanity.schema.json  →  frontend/sanity.types.ts
+    (studio/src/schemaTypes)              (generated, do not edit)
 
-#### 1. Deploy Sanity Studio
-
-Your Next.js frontend (`/frontend`) and Sanity Studio (`/studio`) are still only running on your local computer. It's time to deploy and get it into the hands of other content editors.
-
-Back in your Studio directory (`/studio`), run the following command to deploy your Sanity Studio.
-
-```shell
-npx sanity deploy
+GROQ            frontend/sanity/lib/queries.ts
+  ↓             projections normalise Sanity's shapes into plain objects
+Validation      frontend/lib/content/schema.ts   (zod)
+  ↓
+Data layer      frontend/lib/content/sanity.ts   ← the only module that fetches
+  ↓
+Routes          frontend/app/**
 ```
 
-#### 2. Deploy Next.js app to Vercel
+Three things are worth knowing before changing any of it:
 
-You have the freedom to deploy your Next.js app to your hosting provider of choice. With Vercel and GitHub being a popular choice, we'll cover the basics of that approach.
+**Routes never fetch directly.** They import from `lib/content/sanity.ts`. If
+content ever moves again, that one module is what gets rewritten.
 
-1. Create a GitHub repository from this project. [Learn more](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github).
-2. Create a new Vercel project and connect it to your Github repository.
-3. Set the `Root Directory` to your Next.js app.
-4. Configure your Environment Variables.
+**The zod schemas are not redundant.** The Studio enforces required fields when
+an editor types; zod catches the other way the shape breaks — a projection that
+stopped returning a field. It fails loudly, with the field path, instead of
+rendering `undefined` into a page.
 
-#### 3. Invite a collaborator
+**Adding a field is a four-step change:** the Studio schema, the GROQ
+projection, the zod schema, then the component. Miss the projection and zod
+tells you at once.
 
-Now that you’ve deployed your Next.js application and Sanity Studio, you can optionally invite a collaborator to your Studio. Open up [Manage](https://www.sanity.io/manage), select your project and click "Invite project members"
+### Regenerating types
 
-They will be able to access the deployed Studio, where you can collaborate together on creating content.
+`sanity.types.ts` is generated from the schema and the queries. It regenerates
+automatically on `dev` and `build`, or manually:
 
-## Resources
+```bash
+npm run sanity:typegen --workspace=frontend
+```
 
-- [Sanity documentation](https://www.sanity.io/docs)
-- [Next.js documentation](https://nextjs.org/docs)
-- [Join the Sanity Community](https://slack.sanity.io)
-- [Learn Sanity](https://www.sanity.io/learn)
+## Content model
 
-[vercel-deploy]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsanity-io%2Fsanity-template-nextjs-clean&project-name=nextjs-clean-website-sanity-template&repository-name=nextjs-clean-website-sanity-template&demo-title=Clean%20Next.js%20%2B%20Sanity%20app&demo-description=A%20clean%20Next.js%20plus%20Sanity%20starter%20with%20real-time%20visual%20editing%2C%20drag-and-drop%20page%20builder%2C%20AI%20media%20support%2C%20and%20live%20content%20updates.&demo-url=https%3A%2F%2Ftemplate-nextjs-clean.sanity.build%2F&demo-image=https%3A%2F%2Fraw.githubusercontent.com%2Fsanity-io%2Fsanity-template-nextjs-clean%2Frefs%2Fheads%2Fmain%2Fsanity-next-preview.png&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22sanity%22%2C%22productSlug%22%3A%22project%22%2C%22protocol%22%3A%22other%22%7D%5D&root-directory=frontend
+| Type | Notes |
+| --- | --- |
+| `caseStudy` | The proof layer. 1–4 metrics required; `placeholder` flags invented details and renders a visible "sample" badge |
+| `service` | The richest type. References other services as related; case studies, posts and testimonials all reference *it* |
+| `post` | Journal entries |
+| `testimonial` | References a service, optionally a case study |
+| `page` | The keyed prose/index pages: work, blog, testimonials, privacy |
+| Singletons | `settings`, `homePage`, `aboutPage`, `contactPage`, `servicesPage` |
+
+Rich text is `portableText`, which carries the custom blocks the old MDX bodies
+used: callout, metricRow, beforeAfter, figure, stackList, table and code. Each
+maps to a component in `frontend/components/mdx/MdxComponents.tsx` via
+`PortableBody.tsx`.
+
+Service slugs used to be a hardcoded enum. They're documents now, and everything
+that tags a service holds a *reference*, so a renamed service can't leave a
+dangling tag behind.
+
+## What isn't in the CMS, and why
+
+- **`NEXT_PUBLIC_SITE_URL`** — differs per deployment. A CMS field would make
+  preview builds emit production canonical URLs.
+- **`NEXT_PUBLIC_CONTACT_EMAIL`** — the error and 404 pages can't fetch
+  settings; the error boundary exists for when fetching is what broke.
+- **Icons and diagrams** — `service.icon` and `service.diagram` are keys into
+  code (`ServiceIcon.tsx`, `diagrams/Diagrams.tsx`). The Studio offers the
+  known keys as a dropdown; adding a new one needs a code change, which is the
+  trade for not bundling every Lucide icon.
+
+## Visual editing
+
+Set `SANITY_STUDIO_PREVIEW_URL` (studio) and `NEXT_PUBLIC_SANITY_STUDIO_URL`
+(frontend), then open Presentation in the Studio. Draft Mode is enabled through
+`frontend/app/api/draft-mode/enable`. Document-to-route resolution lives in
+`studio/sanity.config.ts`.
+
+## The content import
+
+`studio/scripts/import-content.ts` migrated the original MDX and JSON into
+Sanity. It's idempotent — deterministic document ids, written with
+`createOrReplace` — so re-running updates rather than duplicating.
+
+```bash
+SOURCE_DIR="path/to/original/project" npm run import-content
+npm run import-content -- --dry-run   # convert and report, write nothing
+```
+
+It needs an Editor token in `SANITY_API_WRITE_TOKEN`; the frontend's read token
+isn't sufficient. The page copy it writes lives in `scripts/page-content.ts`.
+
+The script has done its job — the Studio is the source of truth now. It's kept
+because the conversion rules in `scripts/lib/markdown-to-portable-text.ts` are
+the record of how the MDX mapped onto Portable Text.
+
+## Deploying
+
+See `vercel-installation-instructions.md` for the two-project Vercel setup.
+A write token. Your SANITY_API_READ_TOKEN is read-only, so for the import I used your Sanity CLI's admin credentials, passed through the environment for that one command and not written to disk. For future runs, create an Editor token at manage.sanity.io → API → Tokens and put it in studio/.env as SANITY_API_WRITE_TOKEN.
+
+Presentation click-test. npm run dev gives you Studio on :3333 and the site on :3000; preview URLs are wired. Confirming live visual editing needs a browser session, which I couldn't drive headlessly.
+
+Before deploying, set NEXT_PUBLIC_SITE_URL (canonical URLs and OG links currently point at localhost) and the three RESEND_*/CONTACT_* vars for the contact form — all documented in the updated .env.example files and the rewritten README.
+
+
+
+
